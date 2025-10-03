@@ -1,0 +1,50 @@
+from pydantic import BaseModel
+from typing import Optional
+from datetime import datetime
+
+class Document(BaseModel):
+    document_id: int
+    department_id: int
+    latest_version_title: Optional[str] = None
+    latest_version_number: Optional[int] = None
+    is_public: bool
+    created_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+class DocumentVersion(BaseModel):
+    version_id: int
+    uploader_id: Optional[int] = None
+    document_id: int
+    version_number: int
+    title: Optional[str] = None
+    file_name: Optional[str] = None
+    # file_data: Optional[bytes] = None
+    file_size: Optional[int] = None
+    upload_date: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+class DocumentWithLatestVersion(Document):
+    latest_version: Optional[DocumentVersion] = None
+
+    model_config = {"from_attributes": True}
+
+class User(BaseModel):
+    user_id: int
+    department_id: Optional[int] = None
+    department_name: Optional[str] = None
+    role_id: Optional[int] = None
+    username: str
+    email: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    phone: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+class AccessibleDocuments(BaseModel):
+    user: User
+    documents: list[DocumentWithLatestVersion]
+
+    model_config = {"from_attributes": True}

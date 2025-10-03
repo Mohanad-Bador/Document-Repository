@@ -12,6 +12,8 @@ class Department(Base):
     description = Column(Text)
     # one-to-many relationship with User
     users = relationship("User", back_populates="department", passive_deletes=True)
+    # one-to-many relationship with Document.allowed_departments
+    accessible_documents = relationship("Document", secondary="document_permissions", back_populates="allowed_departments")
 
 class Role(Base):
     __tablename__ = "roles"
@@ -43,6 +45,7 @@ class Document(Base):
     __tablename__ = "documents"
     document_id = Column(Integer, primary_key=True, index=True)
     department_id = Column(Integer, ForeignKey("departments.department_id", ondelete="RESTRICT"), nullable=False)
+    latest_version_title = Column(Text)
     latest_version_number = Column(Integer)
     is_public = Column(Boolean, nullable=False, default=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
