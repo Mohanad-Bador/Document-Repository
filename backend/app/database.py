@@ -9,12 +9,12 @@ DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:password@localho
 
 engine = create_engine(DATABASE_URL, echo=False)
 
-sessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 
 Base = declarative_base()
 
 def get_db():
-    db = sessionLocal()
+    db = SessionLocal()
     try:
         yield db
     finally:

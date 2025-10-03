@@ -4,9 +4,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import and_, select, func
 import io
-import models
-import schemas
-from database import get_db
+import backend.app.models as models
+import backend.app.schemas as schemas
+from backend.app.database import get_db
 
 router = APIRouter()
 
@@ -32,6 +32,21 @@ def list_documents(db: Session = Depends(get_db)):
         results.append(doc_model)
 
     return results
+
+@router.get("/{document_id}/versions", response_model=list[schemas.DocumentVersion])
+def list_document_versions(document_id: int, db: Session = Depends(get_db)):
+    """Return all versions for a document, ordered by version_number."""
+    doc = db.query(models.Document).filter(models.Document.document_id == document_id).one_or_none()
+    if doc is None:
+        raise HTTPException(status_code=404, detail="document not found")
+
+    versions = (
+        db.query(models.DocumentVersion)
+        .filter(models.DocumentVersion.document_id == document_id)
+        .order_by(models.DocumentVersion.version_number)
+        .all()
+    )
+    return [schemas.DocumentVersion.model_validate(v) for v in versions]
 
 @router.get("/user/{user_id}/", response_model=schemas.AccessibleDocuments)
 def get_accessible_documents(user_id: int, db: Session = Depends(get_db)):
@@ -249,3 +264,18 @@ def download_version(version_id: int, db: Session = Depends(get_db)):
         media_type="application/octet-stream",
         headers={"Content-Disposition": f"attachment; filename={version.file_name}"}
     )
+
+@router.post("/publicity/{document_id}/set", response_model=schemas.Document)
+def set_document_publicity(document_id: int, is_public: bool, db: Session = Depends(get_db)):
+    doc = db.query(models.Document).filter(models.Document.document_id == document_id).one_or_none()
+    if not doc:
+        raise HTTPException(status_code=404, detail="document not found")
+    if doc.is_public == is_public:
+        raise HTTPException(status_code=400, detail="document already has the specified publicity status")
+    elif not doc.is_public:
+        # If making a document public, remove all explicit permissions
+        db.query(models.DocumentPermission).filter(models.DocumentPermission.document_id == document_id).delete()
+    doc.is_public = is_public
+    db.commit()
+    db.refresh(doc)
+    return schemas.Document.model_validate(doc)

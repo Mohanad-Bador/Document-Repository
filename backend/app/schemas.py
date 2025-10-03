@@ -9,6 +9,7 @@ class Document(BaseModel):
     latest_version_number: Optional[int] = None
     is_public: bool
     created_at: Optional[datetime] = None
+    # tags: list[Tag] = []
 
     model_config = {"from_attributes": True}
 
@@ -46,5 +47,17 @@ class User(BaseModel):
 class AccessibleDocuments(BaseModel):
     user: User
     documents: list[DocumentWithLatestVersion]
+
+    model_config = {"from_attributes": True}
+
+class Tag(BaseModel):
+    tag_id: int
+    tag_name: str
+
+    model_config = {"from_attributes": True}
+
+class Permission(BaseModel):
+    document_id: int
+    department_id: int
 
     model_config = {"from_attributes": True}

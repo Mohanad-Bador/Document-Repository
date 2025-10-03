@@ -1,6 +1,6 @@
 from fastapi import FastAPI
-from database import init_db
-from documents import router as documents_router
+from backend.app.database import init_db
+from backend.app.routers import documents_router, tags_router, permissions_router
 import uvicorn
 
 
@@ -13,6 +13,8 @@ app = FastAPI(title="Document Repository", lifespan=lifespan)
 
 # include routers
 app.include_router(documents_router, prefix="/documents", tags=["documents"])
+app.include_router(tags_router, prefix="/tags", tags=["tags"])
+app.include_router(permissions_router, prefix="/permissions", tags=["permissions"])
 
 @app.get("/")
 def index():
