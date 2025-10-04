@@ -1,18 +1,21 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import and_, select, func
-import io
+from backend.app.database import get_db
+from backend.app.routers.helpers import get_current_user, can_access_document, require_admin, authorize_document_manage
 import backend.app.models as models
 import backend.app.schemas as schemas
-from backend.app.database import get_db
+import io
 
 router = APIRouter()
 
 # for testing: checks for all documents in the database
 @router.get("/", response_model=list[schemas.DocumentWithLatestVersion])
-def list_documents(db: Session = Depends(get_db)):
+def list_documents(db: Session = Depends(get_db),
+                    _admin_user: models.User = Depends(require_admin)
+                    ):
     """Return all documents with their latest version."""
     D = models.Document
     V = models.DocumentVersion
@@ -34,11 +37,14 @@ def list_documents(db: Session = Depends(get_db)):
     return results
 
 @router.get("/{document_id}/versions", response_model=list[schemas.DocumentVersion])
-def list_document_versions(document_id: int, db: Session = Depends(get_db)):
+def list_document_versions(
+    document_id: int, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
     """Return all versions for a document, ordered by version_number."""
-    doc = db.query(models.Document).filter(models.Document.document_id == document_id).one_or_none()
-    if doc is None:
-        raise HTTPException(status_code=404, detail="document not found")
+    # Check if user can access the document
+    can_access_document(document_id, current_user, db)
 
     versions = (
         db.query(models.DocumentVersion)
@@ -48,13 +54,10 @@ def list_document_versions(document_id: int, db: Session = Depends(get_db)):
     )
     return [schemas.DocumentVersion.model_validate(v) for v in versions]
 
-@router.get("/user/{user_id}/", response_model=schemas.AccessibleDocuments)
-def get_accessible_documents(user_id: int, db: Session = Depends(get_db)):
+@router.get("/me", response_model=schemas.AccessibleDocuments)
+def get_accessible_documents(current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Return documents accessible to the user by department membership or explicit permissions or public docs."""
-    # Load user
-    user = db.query(models.User).filter(models.User.user_id == user_id).one_or_none()
-    if user is None:
-        raise HTTPException(status_code=404, detail="user not found")
+    user = current_user
 
     D = models.Document
     V = models.DocumentVersion
@@ -109,8 +112,8 @@ def upload_document(
     file: UploadFile = File(...),
     is_public: bool | None = Form(True),
     title: str | None = Form(None),
-    uploader_id: int | None = Form(None),
     db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
     """Create a new Document and its initial version in one request.
     If a document with the same title (case-insensitive) exists, appends a new version to it instead."""
@@ -121,20 +124,21 @@ def upload_document(
         raise HTTPException(status_code=400, detail="empty file uploaded")
     file_size = len(file_bytes)
 
+    uploader_id = current_user.user_id
+    if current_user.department_id is None:
+        raise HTTPException(status_code=400, detail="uploader must belong to a department")
+    dept_to_use = current_user.department_id
 
     # 1) If a title is provided, try to find an existing document by that title
     #    (case-insensitive). If found, append a version to that document.
     if title:
-        # Find and lock a document whose latest version title matches exactly
-        # but case-insensitively. Normalize both sides with LOWER() to ensure exact, case-insensitive equality.
-        doc = (
-            db.query(models.Document)
-            .with_for_update()
+        # Find a document whose latest version title matches exactly but case-insensitively.
+        doc = (db.query(models.Document)
             .filter(func.lower(models.Document.latest_version_title) == title.lower())
-            .one_or_none()
-        )
+            .one_or_none())
 
         if doc is not None:
+            doc = authorize_document_manage(db, doc.document_id, current_user, lock=True)
             next_version = (doc.latest_version_number or 0) + 1
             new_version = models.DocumentVersion(
                 uploader_id=uploader_id,
@@ -162,15 +166,6 @@ def upload_document(
                 raise HTTPException(status_code=409, detail="could not append version due to conflict")
 
     # 2) If no existing document matched by title then create a new document
-    # Determine department id from uploader
-    if uploader_id is not None:
-        uploader = db.query(models.User).filter(models.User.user_id == uploader_id).one_or_none()
-        if uploader is not None and uploader.department_id is not None:
-            dept_to_use = uploader.department_id
-
-    if dept_to_use is None:
-        raise HTTPException(status_code=400, detail="Uploader must have a department")
-
     doc = models.Document(department_id=dept_to_use, is_public=(is_public if is_public is not None else True))
     db.add(doc)
     db.flush()
@@ -206,8 +201,8 @@ def upload_new_version(
     document_id: int,
     file: UploadFile = File(...),
     title: str | None = Form(None),
-    uploader_id: int | None = Form(None),
     db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
     """Append a new version to an existing document by document_id."""
     
@@ -217,22 +212,12 @@ def upload_new_version(
         raise HTTPException(status_code=400, detail="empty file uploaded")
     file_size = len(file_bytes)
 
-    # Try to lock the document row. If it exists we'll append a version.
-    doc = (
-        db.query(models.Document)
-        .with_for_update()
-        .filter(models.Document.document_id == document_id)
-        .one_or_none()
-    )
+    doc = authorize_document_manage(db, document_id, current_user, lock=True)
 
-    # If the document does not exist, return 404
-    if doc is None:
-        raise HTTPException(status_code=404, detail="document not found")
-
-    # Document exists
+    # Document exists and user is authorized adding new version
     next_version = (doc.latest_version_number or 0) + 1
     new_version = models.DocumentVersion(
-        uploader_id=uploader_id,
+        uploader_id=current_user.user_id,
         document_id=document_id,
         version_number=next_version,
         title=title,
@@ -254,11 +239,17 @@ def upload_new_version(
         raise HTTPException(status_code=409, detail="could not create version due to conflict")
 
 @router.get("/versions/{version_id}/download")
-def download_version(version_id: int, db: Session = Depends(get_db)):
+def download_version(
+    version_id: int, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Download a specific document version by version_id."""
     version = db.query(models.DocumentVersion).filter(models.DocumentVersion.version_id == version_id).first()
     if not version:
         raise HTTPException(status_code=404, detail="version not found")
-
+    # Check if user can access the document
+    can_access_document(version.document_id, current_user, db)
     return StreamingResponse(
         io.BytesIO(version.file_data),
         media_type="application/octet-stream",
@@ -266,16 +257,85 @@ def download_version(version_id: int, db: Session = Depends(get_db)):
     )
 
 @router.post("/publicity/{document_id}/set", response_model=schemas.Document)
-def set_document_publicity(document_id: int, is_public: bool, db: Session = Depends(get_db)):
-    doc = db.query(models.Document).filter(models.Document.document_id == document_id).one_or_none()
-    if not doc:
-        raise HTTPException(status_code=404, detail="document not found")
+def set_document_publicity(
+    document_id: int, 
+    is_public: bool,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Set the publicity status of a document. Only users from the document's department may change publicity."""
+    doc = authorize_document_manage(db, document_id, current_user)
+    
     if doc.is_public == is_public:
         raise HTTPException(status_code=400, detail="document already has the specified publicity status")
-    elif not doc.is_public:
-        # If making a document public, remove all explicit permissions
+    # If making a document public, remove all explicit permissions
+    if is_public:
         db.query(models.DocumentPermission).filter(models.DocumentPermission.document_id == document_id).delete()
     doc.is_public = is_public
     db.commit()
     db.refresh(doc)
     return schemas.Document.model_validate(doc)
+
+@router.get("/search", response_model=list[schemas.DocumentWithLatestVersion])
+def search_documents(
+    title: str | None = None,
+    tags: list[str] | None = Query(None, description="Tag names to match (any)"),
+    uploader_id: int | None = None,
+    uploader_name: str | None = None,
+    limit: int = 30,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Search documents by title (partial, case-insensitive), tags (any), or uploader.
+    Returns only documents the current_user can access."""
+    D = models.Document
+    V = models.DocumentVersion
+    P = models.DocumentPermission
+
+    # Get accessible document IDs for the current user
+    ids_public = set(db.execute(select(D.document_id).where(D.is_public == True)).scalars().all())
+    ids_dept = set()
+    ids_perm = set()
+    if getattr(current_user, "department_id", None) is not None:
+        ids_dept = set(db.execute(select(D.document_id).where(D.department_id == current_user.department_id)).scalars().all())
+        ids_perm = set(db.execute(select(P.document_id).where(P.department_id == current_user.department_id)).scalars().all())
+
+    accessible_ids = ids_public | ids_dept | ids_perm
+    if not accessible_ids:
+        return []
+
+    # Base query returning document + its latest version
+    q = (
+        db.query(D, V)
+        .outerjoin(V, and_(V.document_id == D.document_id, V.version_number == D.latest_version_number))
+        .filter(D.document_id.in_(list(accessible_ids)))
+    )
+
+    # Checking for docuement title (partial, case-insensitive)
+    if title:
+        q = q.filter(func.lower(D.latest_version_title).contains(title.lower()))
+
+    # Checking for tags
+    if tags:
+        q = q.join(D.tags).filter(models.Tag.tag_name.in_(tags))
+
+    # Checking for uploader
+    if uploader_id is not None or uploader_name:
+        q = q.join(models.User, V.uploader_id == models.User.user_id)
+        if uploader_id is not None:
+            q = q.filter(models.User.user_id == uploader_id)
+        if uploader_name:
+            q = q.filter(func.lower(models.User.username).contains(uploader_name.lower()))
+
+    q = q.distinct().limit(limit).offset(offset)
+
+    rows = q.all()
+    results: list[schemas.DocumentWithLatestVersion] = []
+    for doc, ver in rows:
+        doc_model = schemas.DocumentWithLatestVersion.model_validate(doc)
+        doc_model.latest_version = schemas.DocumentVersion.model_validate(ver) if ver is not None else None
+        doc_model.latest_version_title = ver.title if ver is not None else None
+        results.append(doc_model)
+
+    return results

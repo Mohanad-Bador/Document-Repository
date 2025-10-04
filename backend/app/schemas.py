@@ -44,6 +44,16 @@ class User(BaseModel):
 
     model_config = {"from_attributes": True}
 
+class UserRequest(BaseModel):
+    username: str
+    email: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    phone: Optional[str] = None
+    password: str
+
+    model_config = {"from_attributes": True}
+
 class AccessibleDocuments(BaseModel):
     user: User
     documents: list[DocumentWithLatestVersion]

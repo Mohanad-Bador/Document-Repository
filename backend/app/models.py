@@ -85,7 +85,6 @@ class Tag(Base):
     # many-to-many relationship with document_tags
     documents = relationship("Document", secondary="document_tags", back_populates="tags")
 
-
 class DocumentTag(Base):
     __tablename__ = "document_tags"
     document_id = Column(Integer, ForeignKey("documents.document_id", ondelete="CASCADE"), primary_key=True)
