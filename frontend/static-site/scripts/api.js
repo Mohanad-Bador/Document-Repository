@@ -52,9 +52,16 @@ export async function assignTagToDocument(documentId, tagId) { return await post
 export async function removeTagFromDocument(documentId, tagId) { return await postReturnOk(`${apiBase}/tags/document/${enc(documentId)}/remove/${enc(tagId)}`); }
 
 // Permissions & departments
-export async function fetchViewPermissions(documentId) { return await apiJson(`${apiBase}/permissions/document/${encodeURIComponent(documentId)}`, {}, []); }
-export async function grantViewPermission(documentId, { dept_id = null } = {}) { if (!dept_id) throw new Error('missing dept_id'); return await postExpectJson(`${apiBase}/permissions/grant?doc_id=${enc(documentId)}&dept_id=${enc(dept_id)}`); }
-export async function revokeViewPermission(documentId, { dept_id = null } = {}) { if (!dept_id) throw new Error('missing dept_id'); return await postReturnOk(`${apiBase}/permissions/revoke?doc_id=${enc(documentId)}&dept_id=${enc(dept_id)}`); }
+// View (department) permissions endpoints (renamed paths)
+export async function fetchViewPermissions(documentId) { return await apiJson(`${apiBase}/permissions/view/document/${encodeURIComponent(documentId)}`, {}, []); }
+export async function grantViewPermission(documentId, { dept_id = null } = {}) { if (!dept_id) throw new Error('missing dept_id'); return await postExpectJson(`${apiBase}/permissions/view/grant?doc_id=${enc(documentId)}&dept_id=${enc(dept_id)}`); }
+export async function revokeViewPermission(documentId, { dept_id = null } = {}) { if (!dept_id) throw new Error('missing dept_id'); return await postReturnOk(`${apiBase}/permissions/view/revoke?doc_id=${enc(documentId)}&dept_id=${enc(dept_id)}`); }
+
+// Edit (per-user) permissions
+export async function fetchEditPermissions(documentId) { return await apiJson(`${apiBase}/permissions/edit/document/${encodeURIComponent(documentId)}`, {}, []); }
+export async function grantEditPermission(documentId, { user_id = null } = {}) { if(!user_id) throw new Error('missing user_id'); return await postExpectJson(`${apiBase}/permissions/edit/grant?doc_id=${enc(documentId)}&user_id=${enc(user_id)}`); }
+export async function revokeEditPermission(documentId, { user_id = null } = {}) { if(!user_id) throw new Error('missing user_id'); return await postReturnOk(`${apiBase}/permissions/edit/revoke?doc_id=${enc(documentId)}&user_id=${enc(user_id)}`); }
+export async function fetchEligibleEditUsers(documentId){ return await apiJson(`${apiBase}/permissions/edit/eligible/${encodeURIComponent(documentId)}`, {}, []); }
 export async function fetchDepartments() { try { return await apiJson(`${apiBase}/permissions/departments/`, {}, []); } catch (err) { console.error('fetchDepartments error', err); return []; } }
 
 // Documents
@@ -89,6 +96,7 @@ export async function fetchDocument(documentId) {
     return null;
   }
 }
+export async function fetchDocumentCapabilities(documentId){ return await apiJson(`${apiBase}/documents/${encodeURIComponent(documentId)}/capabilities`, {}, null); }
 export async function fetchAccessibleDocsRaw() {
   // Try to detect admin users and return the admin list endpoint for them
   try {

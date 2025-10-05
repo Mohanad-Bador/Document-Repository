@@ -20,20 +20,21 @@ export function setupDocuments(getOpenDetailsModalFor) {
   if (Array.isArray(payload)) docs = payload;
   else if (payload && Array.isArray(payload.documents)) docs = payload.documents;
   if (Array.isArray(docs)) docs.sort((a,b)=> (a.document_id||0) - (b.document_id||0));
-  renderDocuments(docs);
+  await renderDocuments(docs);
     } catch (err) {
       console.error('network error fetching accessible documents', err);
       if (resultsEl) resultsEl.textContent = 'Network error loading documents';
     }
   }
 
-  function renderDocuments(docs) {
+  async function renderDocuments(docs) {
     if (!resultsEl) return;
     if (!Array.isArray(docs) || docs.length === 0) { resultsEl.innerHTML = '<div style="color:#555">No accessible documents.</div>'; return; }
+    // Removed unused canEdit logic (edit gating handled inside details modal via capabilities endpoint)
     const html = docs.map(d => {
       const id = escapeHtml(d.document_id ?? '—');
       const title = escapeHtml(d.latest_version_title ?? d.latest_version?.title ?? 'Untitled');
-      const isPublic = d.is_public ? 'Public' : 'Restricted';
+      const isPublic = d.is_public ? 'Public' : 'Private';
       const deptName = escapeHtml(d.department_name ?? d.department?.name ?? '—');
       const latestVersionId = escapeHtml(d.latest_version?.version_id ?? '');
       const latestFileName = escapeHtml(d.latest_version?.file_name ?? '');
@@ -47,12 +48,13 @@ export function setupDocuments(getOpenDetailsModalFor) {
         <div class="doc-actions" style="margin-top:10px">
           <button class="btn" data-action="view" data-id="${id}">View</button>
           <button class="btn secondary" data-action="download" data-id="${id}">Download</button>
-          <button class="btn secondary" data-action="details" data-id="${id}">Details</button>
+          <button class="btn secondary doc-details-btn" data-action="details" data-id="${id}">Details</button>
         </div>
       </article>`;
     }).join('');
     resultsEl.innerHTML = html;
     attachDocumentCardHandlers();
+    // Details button now visible for all accessible documents (read-only modal allowed)
   }
 
   function attachDocumentCardHandlers() {
@@ -97,7 +99,7 @@ export function setupDocuments(getOpenDetailsModalFor) {
       }
   let docs = await res.json();
   if (Array.isArray(docs)) docs.sort((a,b)=> (a.document_id||0) - (b.document_id||0));
-  renderDocuments(docs);
+  await renderDocuments(docs);
     } catch (err) {
       console.error('network error during search', err);
       if (resultsEl) resultsEl.textContent = 'Network error';

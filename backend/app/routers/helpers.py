@@ -6,6 +6,7 @@ from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
+from backend.app import schemas
 import backend.app.models as models
 from backend.app.database import get_db
 
@@ -86,15 +87,25 @@ def can_access_document(document_id: int, current_user: models.User, db: Session
     # Check if document belongs to the user's department
     if current_user and current_user.department_id is not None and current_user.department_id == doc.department_id:
         return doc
-    # explicit permission for user's department
+    # explicit view permission for user's department
     if current_user and current_user.department_id is not None:
         perm = (
-            db.query(models.DocumentPermission)
-            .filter(models.DocumentPermission.document_id == document_id,
-                    models.DocumentPermission.department_id == current_user.department_id)
+            db.query(models.DocumentViewPermission)
+            .filter(models.DocumentViewPermission.document_id == document_id,
+                    models.DocumentViewPermission.department_id == current_user.department_id)
             .one_or_none()
         )
         if perm:
+            return doc
+    # edit permission also grants view
+    if current_user:
+        edit_perm = (
+            db.query(models.DocumentEditPermission)
+            .filter(models.DocumentEditPermission.document_id == document_id,
+                    models.DocumentEditPermission.user_id == current_user.user_id)
+            .one_or_none()
+        )
+        if edit_perm:
             return doc
     # Check if user is admin
     if getattr(current_user, "role_id", None) == 0 or getattr(current_user.role, "name", None) == "admin":
@@ -106,16 +117,50 @@ def authorize_document_manage(db: Session, doc_id: int, current_user: models.Use
     Ensure the current_user is allowed to manage (edit permissions/tags/versions) the document.
     Allowed if:
       - user is admin (role_id == 0 or role.name == "admin")
-      - OR user's department_id == document.department_id
+      - OR user is the owner (owner_user_id)
+      - OR user has explicit edit permission (in document_edit_permissions)
     Returns the Document orm instance on success, raises HTTPException on failure.
     """
    
     doc = get_document_for_update(db, doc_id)
 
     is_admin = getattr(current_user, "role_id", None) == 0 or getattr(current_user.role, "name", None) == "admin"
-    if not is_admin and getattr(current_user, "department_id", None) != doc.department_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="only admins or users from the document's department may manage this document"
+    is_owner = getattr(doc, "owner_user_id", None) == getattr(current_user, "user_id", None)
+    if not (is_admin or is_owner):
+        # Check edit permission
+        edit_perm = (
+            db.query(models.DocumentEditPermission)
+            .filter(models.DocumentEditPermission.document_id == doc_id,
+                    models.DocumentEditPermission.user_id == current_user.user_id)
+            .one_or_none()
         )
+        if not edit_perm:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="only admins, owner, or users with edit permission may manage this document"
+            )
     return doc
+
+
+def _serialize_document_with_latest(doc: models.Document, ver: models.DocumentVersion | None) -> schemas.DocumentWithLatestVersion:
+    """Build a DocumentWithLatestVersion schema instance from ORM objects.
+    Centralizes repeated serialization logic (tags, department_name, owner_name, latest version fields).
+    """
+    doc_model = schemas.DocumentWithLatestVersion.model_validate(doc)
+    doc_model.latest_version = schemas.DocumentVersion.model_validate(ver) if ver is not None else None
+    doc_model.latest_version_title = ver.title if ver is not None else None
+    # Tags
+    doc_model.tags = [schemas.Tag.model_validate(t) for t in (getattr(doc, 'tags', None) or [])]
+    # Department name (optional)
+    if getattr(doc, 'department', None):
+        doc_model.department_name = getattr(doc.department, 'name', None)
+    # Owner name preference: full name if both present else username
+    owner = getattr(doc, 'owner', None)
+    if owner is not None:
+        first = getattr(owner, 'first_name', None)
+        last = getattr(owner, 'last_name', None)
+        if first and last:
+            doc_model.owner_name = f"{first} {last}"
+        else:
+            doc_model.owner_name = getattr(owner, 'username', None)
+    return doc_model

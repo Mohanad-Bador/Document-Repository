@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import and_, select, func
 from backend.app.database import get_db
-from backend.app.routers.helpers import get_current_user, can_access_document, require_admin, authorize_document_manage
+from backend.app.routers.helpers import get_current_user, can_access_document, require_admin, authorize_document_manage, _serialize_document_with_latest
 import backend.app.models as models
 import backend.app.schemas as schemas
 import io
@@ -12,6 +12,7 @@ import mimetypes
 import urllib.parse
 
 router = APIRouter()
+
 
 # for testing: checks for all documents in the database
 @router.get("/", response_model=list[schemas.DocumentWithLatestVersion])
@@ -24,24 +25,13 @@ def list_documents(db: Session = Depends(get_db),
 
     rows = (
         db.query(D, V)
-        .options(selectinload(D.tags), selectinload(D.department))
+        .options(selectinload(D.tags), selectinload(D.department), selectinload(D.owner))
         .outerjoin(V, and_(V.document_id == D.document_id,
                                 V.version_number == D.latest_version_number))
         .all()
     )
 
-    results: list[schemas.DocumentWithLatestVersion] = []
-    for doc, ver in rows:
-        doc_model = schemas.DocumentWithLatestVersion.model_validate(doc)
-        # populate latest_version as before
-        doc_model.latest_version = schemas.DocumentVersion.model_validate(ver) if ver is not None else None
-        doc_model.latest_version_title = ver.title if ver is not None else None
-        # populate tags explicitly
-        doc_model.tags = [schemas.Tag.model_validate(t) for t in (doc.tags or [])]
-        doc_model.department_name = doc.department.name if getattr(doc, "department", None) else None
-        results.append(doc_model)
-
-    return results
+    return [_serialize_document_with_latest(doc, ver) for doc, ver in rows]
 
 @router.get("/{document_id}/versions", response_model=list[schemas.DocumentVersion])
 def list_document_versions(
@@ -87,21 +77,16 @@ def get_accessible_documents(current_user: models.User = Depends(get_current_use
 
     D = models.Document
     V = models.DocumentVersion
-    P = models.DocumentPermission
+    P = models.DocumentViewPermission
+    E = models.DocumentEditPermission
 
     # Document id sets for each rule:
     ids_public = set(db.execute(select(D.document_id).where(D.is_public == True)).scalars().all()) # public docs
     ids_dept   = set(db.execute(select(D.document_id).where(D.department_id == user.department_id)).scalars().all()) # docs with user's dept id
     ids_perm   = set(db.execute(select(P.document_id).where(P.department_id == user.department_id)).scalars().all()) # docs with explicit permission for user dept
+    ids_edit  = set(db.execute(select(E.document_id).where(E.user_id == user.user_id)).scalars().all()) # user has explicit edit permission
 
-    doc_ids = ids_public | ids_dept | ids_perm
-
-    # Alternative queries (less efficient) as they take more time and return orm objects
-    # q_public = db.query(D.document_id).filter(D.is_public == True)
-    # q_dept = db.query(D.document_id).filter(D.department_id == user.department_id)
-    # q_perm = db.query(P.document_id).filter(P.department_id == user.department_id)
-    # doc_ids = {r.document_id for r in q_public.all()} | {r.document_id for r in q_dept.all()} | {r.document_id for r in q_perm.all()}
-
+    doc_ids = ids_public | ids_dept | ids_perm | ids_edit
 
     user_model = schemas.User.model_validate(user)
 
@@ -124,21 +109,13 @@ def get_accessible_documents(current_user: models.User = Depends(get_current_use
     # Fetch documents with their latest version
     rows = (
         db.query(D, V)
-        .options(selectinload(D.tags), selectinload(D.department))
+        .options(selectinload(D.tags), selectinload(D.department), selectinload(D.owner))
         .outerjoin(V, and_(V.document_id == D.document_id, V.version_number == D.latest_version_number))
         .filter(D.document_id.in_(list(doc_ids)))
         .all()
     )
 
-    documents: list[schemas.DocumentWithLatestVersion] = []
-    for doc, ver in rows:
-        doc_model = schemas.DocumentWithLatestVersion.model_validate(doc)
-        doc_model.latest_version = schemas.DocumentVersion.model_validate(ver) if ver is not None else None
-        doc_model.latest_version_title = ver.title if ver is not None else None
-        doc_model.tags = [schemas.Tag.model_validate(t) for t in (doc.tags or [])]
-        doc_model.department_name = doc.department.name if getattr(doc, "department", None) else None
-        documents.append(doc_model)
-
+    documents = [_serialize_document_with_latest(doc, ver) for doc, ver in rows]
     return schemas.AccessibleDocuments(user=user_model, documents=documents)
 
 
@@ -201,7 +178,7 @@ def upload_document(
                 raise HTTPException(status_code=409, detail="could not append version due to conflict")
 
     # 2) If no existing document matched by title then create a new document
-    doc = models.Document(department_id=dept_to_use, is_public=(is_public if is_public is not None else True))
+    doc = models.Document(department_id=dept_to_use, owner_user_id=uploader_id, is_public=(is_public if is_public is not None else True))
     db.add(doc)
     db.flush()
 
@@ -315,7 +292,7 @@ def toggle_document_publicity(
 
     # If making a document public, remove all explicit permissions
     if not doc.is_public:
-        db.query(models.DocumentPermission).filter(models.DocumentPermission.document_id == document_id).delete()
+        db.query(models.DocumentViewPermission).filter(models.DocumentViewPermission.document_id == document_id).delete()
     doc.is_public = not doc.is_public
     db.commit()
     db.refresh(doc)
@@ -336,7 +313,7 @@ def search_documents(
     Returns only documents the current_user can access."""
     D = models.Document
     V = models.DocumentVersion
-    P = models.DocumentPermission
+    P = models.DocumentViewPermission
 
     # Get accessible document IDs for the current user
     ids_public = set(db.execute(select(D.document_id).where(D.is_public == True)).scalars().all())
@@ -353,7 +330,7 @@ def search_documents(
     # Base query returning document + its latest version
     q = (
         db.query(D, V)
-        .options(selectinload(D.tags), selectinload(D.department))
+        .options(selectinload(D.tags), selectinload(D.department), selectinload(D.owner))
         .outerjoin(V, and_(V.document_id == D.document_id, V.version_number == D.latest_version_number))
         .filter(D.document_id.in_(list(accessible_ids)))
     )
@@ -377,13 +354,26 @@ def search_documents(
     q = q.distinct().limit(limit).offset(offset)
 
     rows = q.all()
-    results: list[schemas.DocumentWithLatestVersion] = []
-    for doc, ver in rows:
-        doc_model = schemas.DocumentWithLatestVersion.model_validate(doc)
-        doc_model.latest_version = schemas.DocumentVersion.model_validate(ver) if ver is not None else None
-        doc_model.latest_version_title = ver.title if ver is not None else None
-        doc_model.tags = [schemas.Tag.model_validate(t) for t in (doc.tags or [])]
-        doc_model.department_name = doc.department.name if getattr(doc, "department", None) else None
-        results.append(doc_model)
+    return [_serialize_document_with_latest(doc, ver) for doc, ver in rows]
 
-    return results
+@router.get("/{document_id}/capabilities", response_model=schemas.DocumentCapabilities)
+def document_capabilities(document_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    """Return capability flags for current user on a document (edit rights etc)."""
+    doc = db.query(models.Document).filter(models.Document.document_id == document_id).one_or_none()
+    if not doc:
+        raise HTTPException(status_code=404, detail="document not found")
+    is_admin = getattr(current_user, 'role_id', None) == 0 or getattr(getattr(current_user,'role',None),'name',None) == 'admin'
+    is_owner = getattr(doc, 'owner_user_id', None) == getattr(current_user, 'user_id', None)
+    has_explicit_edit = bool(db.query(models.DocumentEditPermission).filter(
+        models.DocumentEditPermission.document_id == document_id,
+        models.DocumentEditPermission.user_id == current_user.user_id
+    ).one_or_none())
+    # Only admins, explicit owner, or users with explicit per-user edit permission may edit/mutate.
+    can_edit = is_admin or is_owner or has_explicit_edit
+    return schemas.DocumentCapabilities(
+        document_id=document_id,
+        can_edit=bool(can_edit),
+        is_owner=bool(is_owner),
+        is_admin=bool(is_admin),
+        has_explicit_edit=bool(has_explicit_edit)
+    )

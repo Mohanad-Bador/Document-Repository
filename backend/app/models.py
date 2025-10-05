@@ -13,7 +13,7 @@ class Department(Base):
     # one-to-many relationship with User
     users = relationship("User", back_populates="department", passive_deletes=True)
     # one-to-many relationship with Document.allowed_departments
-    accessible_documents = relationship("Document", secondary="document_permissions", back_populates="allowed_departments")
+    accessible_documents = relationship("Document", secondary="document_view_permissions", back_populates="allowed_departments")
     # one-to-many relationship: documents owned by this department
     documents = relationship("Document", back_populates="department", passive_deletes=True)
 
@@ -47,6 +47,8 @@ class Document(Base):
     __tablename__ = "documents"
     document_id = Column(Integer, primary_key=True, index=True)
     department_id = Column(Integer, ForeignKey("departments.department_id", ondelete="RESTRICT"), nullable=False)
+    # explicit document owner (user who created first version). Nullable for legacy rows until backfilled.
+    owner_user_id = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
     latest_version_title = Column(Text)
     latest_version_number = Column(Integer)
     is_public = Column(Boolean, nullable=False, default=True)
@@ -61,9 +63,11 @@ class Document(Base):
     )
     # many-to-one relationship to owning Department
     department = relationship("Department", back_populates="documents")
-    # one-to-many relationship with document_tags and document_permissions
+    # relationship to explicit owner user
+    owner = relationship("User", foreign_keys=[owner_user_id])
+    # one-to-many relationship with document_tags and document_view_permissions
     tags = relationship("Tag", secondary="document_tags", back_populates="documents")
-    allowed_departments = relationship("Department", secondary="document_permissions", back_populates="accessible_documents")
+    allowed_departments = relationship("Department", secondary="document_view_permissions", back_populates="accessible_documents")
 
 class DocumentVersion(Base):
     __tablename__ = "document_versions"
@@ -94,7 +98,12 @@ class DocumentTag(Base):
     document_id = Column(Integer, ForeignKey("documents.document_id", ondelete="CASCADE"), primary_key=True)
     tag_id = Column(Integer, ForeignKey("tags.tag_id", ondelete="CASCADE"), primary_key=True)
 
-class DocumentPermission(Base):
-    __tablename__ = "document_permissions"
+class DocumentViewPermission(Base):
+    __tablename__ = "document_view_permissions"
     document_id = Column(Integer, ForeignKey("documents.document_id", ondelete="CASCADE"), primary_key=True)
     department_id = Column(Integer, ForeignKey("departments.department_id", ondelete="CASCADE"), primary_key=True)
+
+class DocumentEditPermission(Base):
+    __tablename__ = "document_edit_permissions"
+    document_id = Column(Integer, ForeignKey("documents.document_id", ondelete="CASCADE"), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.user_id", ondelete="CASCADE"), primary_key=True)

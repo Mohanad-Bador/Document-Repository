@@ -12,6 +12,8 @@ class Document(BaseModel):
     document_id: int
     department_id: int
     department_name: Optional[str] = None
+    owner_user_id: Optional[int] = None
+    owner_name: Optional[str] = None
     latest_version_title: Optional[str] = None
     latest_version_number: Optional[int] = None
     is_public: bool
@@ -69,9 +71,27 @@ class AccessibleDocuments(BaseModel):
 
     model_config = {"from_attributes": True}
 
-class Permission(BaseModel):
+class ViewPermission(BaseModel):
     document_id: int
     department_id: int
+
+    model_config = {"from_attributes": True}
+
+class EditPermission(BaseModel):
+    document_id: int
+    user_id: int
+    username: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+class DocumentCapabilities(BaseModel):
+    document_id: int
+    can_edit: bool
+    is_owner: bool
+    is_admin: bool
+    has_explicit_edit: bool
 
     model_config = {"from_attributes": True}
 
