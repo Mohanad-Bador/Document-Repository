@@ -16,6 +16,7 @@
     <header class="site-header">
       <h1 class="site-title">Dashboard</h1>
       <nav class="site-nav">
+  <a id="adminLink" href="/static/admin.html" class="btn secondary hidden">Admin</a>
         <button id="btnLogout" class="btn secondary" type="button">Logout</button>
       </nav>
     </header>
@@ -69,17 +70,17 @@
 
     <!-- Versions modal (hidden) -->
   <div id="detailsModal" class="modal" aria-hidden="true" role="dialog" aria-modal="true">
-    <div class="modal-content">
+    <div class="modal-content tall">
       <header class="modal-header">
         <h3>Document versions</h3>
         <button id="btnCloseDetails" class="modal-close" aria-label="Close">&times;</button>
       </header>
 
-  <div id="versionsList">
+      <div id="versionsList" class="modal-scroll">
         <!-- versions will be injected here -->
       </div>
 
-      <div class="details-footer">
+  <div class="details-footer">
         <button id="btnCloseDetailsFooter" class="btn secondary" type="button">Close</button>
       </div>
     </div>
@@ -87,6 +88,7 @@
 
   </div>
 
-  <script type="module" src="scripts/dashboard.js"></script>
+  <!-- Use absolute path so FastAPI mounted /static serves file correctly -->
+  <script type="module" src="/static/scripts/dashboard.js"></script>
 </body>
 </html>

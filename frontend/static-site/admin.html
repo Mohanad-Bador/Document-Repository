@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Panel — Document Repo</title>
+  <link rel="stylesheet" href="/static/styles/base.css" />
+  <link rel="stylesheet" href="/static/styles/buttons.css" />
+  <link rel="stylesheet" href="/static/styles/modal.css" />
+  <link rel="stylesheet" href="/static/styles/admin.css" />
+</head>
+<body>
+  <div class="app-shell admin-layout">
+    <header class="site-header">
+      <h1 class="site-title">Admin Panel</h1>
+      <nav class="site-nav">
+        <a href="/static/dashboard.html" class="btn secondary">Dashboard</a>
+        <button id="btnLogout" class="btn secondary" type="button">Logout</button>
+      </nav>
+    </header>
+
+    <div id="adminNotice" class="notice" role="status"></div>
+
+    <section class="flex-row">
+  <div class="card wide">
+        <h2>Users</h2>
+        <p class="small">Assign roles and departments. Changes save instantly on selection.</p>
+        <div id="usersStatus" class="notice"></div>
+  <div class="table-scroll">
+          <table id="usersTable" aria-describedby="usersStatus">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Username</th>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Role</th>
+                <th>Department</th>
+              </tr>
+            </thead>
+            <tbody id="usersBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Roles</h2>
+        <form id="roleForm" class="inline" autocomplete="off">
+          <label>Role name<br><input id="roleName" type="text" required maxlength="50"></label>
+          <label>Description<br><input id="roleDesc" type="text" maxlength="120"></label>
+          <button class="btn" type="submit">Add Role</button>
+        </form>
+        <div id="rolesStatus" class="notice" aria-live="polite"></div>
+        <ul id="rolesList"></ul>
+      </div>
+
+      <div class="card">
+        <h2>Departments</h2>
+        <form id="deptForm" class="inline" autocomplete="off">
+          <label>Name<br><input id="deptName" type="text" required maxlength="50"></label>
+          <label>Description<br><input id="deptDesc" type="text" maxlength="120"></label>
+          <button class="btn" type="submit">Add Dept</button>
+        </form>
+        <div id="deptsStatus" class="notice" aria-live="polite"></div>
+        <ul id="deptsList"></ul>
+      </div>
+    </section>
+  </div>
+
+  <script type="module" src="scripts/admin.js"></script>
+</body>
+</html>

@@ -36,7 +36,7 @@ img,svg{max-width:100%;height:auto;display:block}
 
 :focus{outline:3px solid rgba(11,105,255,0.12);outline-offset:2px}
 
-/* header / top nav - keeps logout button at top-right */
+/* header */
 .site-header{
   position:sticky;
   top:12px;

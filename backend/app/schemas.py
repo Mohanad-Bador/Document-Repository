@@ -74,3 +74,17 @@ class Permission(BaseModel):
     department_id: int
 
     model_config = {"from_attributes": True}
+
+class Role(BaseModel):
+    role_id: int
+    name: str
+    description: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+class Department(BaseModel):
+    department_id: int
+    name: str
+    description: Optional[str] = None
+
+    model_config = {"from_attributes": True}

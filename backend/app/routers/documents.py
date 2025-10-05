@@ -303,22 +303,20 @@ def download_version(
         headers={"Content-Disposition": f'{disposition_kind}; filename="{filename_quoted}"'}
     )
 
-@router.post("/publicity/{document_id}/set", response_model=schemas.Document)
-def set_document_publicity(
+@router.post("/publicity/{document_id}/toggle", response_model=schemas.Document)
+def toggle_document_publicity(
     document_id: int, 
-    is_public: bool,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
     """Set the publicity status of a document. Only users from the document's department may change publicity."""
     doc = authorize_document_manage(db, document_id, current_user)
     
-    if doc.is_public == is_public:
-        raise HTTPException(status_code=400, detail="document already has the specified publicity status")
+
     # If making a document public, remove all explicit permissions
-    if is_public:
+    if not doc.is_public:
         db.query(models.DocumentPermission).filter(models.DocumentPermission.document_id == document_id).delete()
-    doc.is_public = is_public
+    doc.is_public = not doc.is_public
     db.commit()
     db.refresh(doc)
     return schemas.Document.model_validate(doc)

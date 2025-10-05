@@ -1,11 +1,16 @@
 // manages details modal (versions, tags, permissions)
-import { apiBase, fetchAllTags, fetchDocumentTags, fetchViewPermissions, grantViewPermission, revokeViewPermission, fetchDepartments, fetchDocument, fetchVersions, updateDocumentVersion, assignTagToDocument, removeTagFromDocument, createTagOnServer } from './api.js';
+import { apiBase, fetchAllTags, fetchDocumentTags, fetchViewPermissions, grantViewPermission, revokeViewPermission, fetchDepartments, fetchDocument, fetchVersions, updateDocumentVersion, assignTagToDocument, removeTagFromDocument, createTagOnServer, toggleDocumentPublicity } from './api.js';
 import { escapeHtml, formatBytes, handleFileRequest, normDeptIdFromDept, normDeptIdFromPerm } from './utils.js';
 
 const detailsModal = document.getElementById('detailsModal');
 const versionsListEl = document.getElementById('versionsList');
 const btnCloseDetails = document.getElementById('btnCloseDetails');
 const btnCloseDetailsFooter = document.getElementById('btnCloseDetailsFooter');
+
+// ---------- Helpers ----------
+const qs = (sel, root=document) => root.querySelector(sel);
+const setHTML = (el, html) => { if(el) el.innerHTML = html; };
+const mapJoin = (arr, fn, empty) => (Array.isArray(arr) && arr.length) ? arr.map(fn).join('') : (empty || '');
 
 function openDetailsModal() { if (!detailsModal) return; detailsModal.style.display = 'flex'; detailsModal.setAttribute('aria-hidden', 'false'); }
 function closeDetailsModal() { if (!detailsModal) return; detailsModal.style.display = 'none'; detailsModal.setAttribute('aria-hidden', 'true'); if (versionsListEl) versionsListEl.innerHTML = ''; }
@@ -14,7 +19,7 @@ btnCloseDetailsFooter?.addEventListener('click', closeDetailsModal);
 detailsModal?.addEventListener('click', (e) => { if (e.target === detailsModal) closeDetailsModal(); });
 
 function renderVersionEntries(versions, documentId) {
-  return (versions || []).map(v => {
+  return mapJoin(versions, v => {
     const verId = escapeHtml(v.version_id ?? '');
     const verNum = escapeHtml(v.version_number ?? '');
     const title = escapeHtml(v.title ?? v.file_name ?? 'Untitled');
@@ -30,7 +35,7 @@ function renderVersionEntries(versions, documentId) {
         <button class="btn secondary" data-action="vdownload" data-id="${verId}" data-fname="${fname}">Download</button>
       </div>
     </div>`;
-  }).join('');
+  }, '');
 }
 
 export function setupDetails(refreshDocuments) {
@@ -43,8 +48,8 @@ export function setupDetails(refreshDocuments) {
       ]);
       const allTags = await fetchAllTags();
       const viewPerms = await fetchViewPermissions(documentId);
-      let departments = await fetchDepartments();
-      const docDetail = await fetchDocument(documentId);
+    let departments = await fetchDepartments();
+    let docDetail = await fetchDocument(documentId);
       const ownerDeptIdRaw = docDetail ? (docDetail.department_id ?? docDetail.department?.department_id ?? null) : null;
       const ownerDeptId = ownerDeptIdRaw != null ? String(ownerDeptIdRaw).trim() : '';
 
@@ -53,7 +58,7 @@ export function setupDetails(refreshDocuments) {
       const assignedById = new Map((docTags || []).map(t => [String(t.tag_id), t]));
       const available = (allTags || []).filter(t => !assignedById.has(String(t.tag_id)));
 
-      function renderTagBtn(t, assignedFlag) { return `<button class="tag-ctl" data-tag-id="${t.tag_id}" data-assigned="${assignedFlag ? '1':'0'}" style="margin:4px;padding:6px 8px;border-radius:999px;border:1px solid #e6e9ee;background:${assignedFlag ? '#eef2ff' : '#fff'}">${escapeHtml(t.tag_name)}</button>`; }
+  function renderTagBtn(t, assignedFlag) { return `<button class="tag-ctl" data-tag-id="${t.tag_id}" data-assigned="${assignedFlag ? '1':'0'}" style="margin:4px;padding:6px 8px;border-radius:999px;border:1px solid #e6e9ee;background:${assignedFlag ? '#eef2ff' : '#fff'}">${escapeHtml(t.tag_name)}</button>`; }
       function renderViewPermItem(p) {
         const id = p.view_permission_id ?? p.permission_id ?? '';
         const deptId = p.department_id ?? null;
@@ -64,15 +69,24 @@ export function setupDetails(refreshDocuments) {
         </div>`;
       }
 
-      versionsListEl.innerHTML = `
-        <div style="display:flex;gap:16px;margin-bottom:12px;align-items:flex-start">
+  versionsListEl.innerHTML = `
+        <div style="margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:12px">
+          <div>
+            <div style="font-weight:600;margin-bottom:6px">Publicity</div>
+            <div id="publicityStatus" style="color:#666">${docDetail && docDetail.is_public ? 'Public' : 'Private'}</div>
+          </div>
+          <div>
+            <button id="btnTogglePublicity" class="btn primary">${docDetail && docDetail.is_public ? 'Make Private' : 'Make Public'}</button>
+          </div>
+        </div>
+  <div style="display:flex;gap:16px;margin-bottom:12px;align-items:flex-start">
           <div style="flex:1">
             <div style="font-weight:600;margin-bottom:6px">Assigned tags</div>
             <div id="assignedTagsArea">${assigned.length ? assigned.map(t => renderTagBtn(t, true)).join(' ') : '<span class="tag muted">no tags</span>'}</div>
           </div>
           <div style="flex:1">
             <div style="font-weight:600;margin-bottom:6px">Available tags</div>
-            <div id="availableTagsArea">${available.length ? available.map(t => renderTagBtn(t, false)).join(' ') : '<span style=\"color:#666\">No tags available</span>'}</div>
+            <div id="availableTagsArea">${available.length ? available.map(t => renderTagBtn(t, false)).join(' ') : '<span style="color:#666">No tags available</span>'}</div>
           </div>
         </div>
         <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center">
@@ -101,12 +115,39 @@ export function setupDetails(refreshDocuments) {
         <div id="versionsInner">${renderVersionEntries(versions, documentId)}</div>
       `;
 
-      function updateVersionsInner(updated) {
-        const inner = document.getElementById('versionsInner');
-        if (inner) inner.innerHTML = renderVersionEntries(updated, documentId);
-      }
+      const updateVersionsInner = (updated) => setHTML(qs('#versionsInner'), renderVersionEntries(updated, documentId));
 
-      const vpSelect = document.getElementById('vpDeptSelect');
+    const vpSelect = qs('#vpDeptSelect');
+    const publicityEl = qs('#publicityStatus');
+    const publicityBtn = qs('#btnTogglePublicity');
+      if (publicityBtn) {
+        publicityBtn.addEventListener('click', async () => {
+          try {
+            publicityBtn.disabled = true;
+            // Use toggle endpoint on the server
+            const updated = await toggleDocumentPublicity(documentId);
+            // re-fetch everything and re-render modal for this document
+            const [newVersions, newDocTags, newViewPerms, newDocDetail] = await Promise.all([
+              fetchVersions(documentId),
+              fetchDocumentTags(documentId),
+              fetchViewPermissions(documentId),
+              fetchDocument(documentId)
+            ]);
+            // refresh local state
+            docDetail.is_public = newDocDetail?.is_public ?? (updated?.is_public ?? targetPublic);
+            // replace inner content by calling the same render block: reuse update functions
+            updateVersionsInner(Array.isArray(newVersions) ? newVersions : []);
+            updateTagAreas(newDocTags || [], (allTags || []).filter(t => !(newDocTags || []).some(nt => String(nt.tag_id) === String(t.tag_id))));
+            setHTML(qs('#viewPermsArea'), Array.isArray(newViewPerms) && newViewPerms.length ? newViewPerms.map(p => renderViewPermItem(p)).join('') : '<div style="color:#666">No explicit view permissions</div>');
+            if (publicityEl) publicityEl.textContent = docDetail.is_public ? 'Public' : 'Private';
+            if (publicityBtn) publicityBtn.textContent = docDetail.is_public ? 'Make Private' : 'Make Public';
+            // refresh the documents list outside the modal
+            await refreshDocuments();
+          } catch (e) {
+            alert('Could not change publicity: ' + (e.message || 'error'));
+          } finally { publicityBtn.disabled = false; }
+        });
+      }
       function populateDeptSelect(departmentsList, currentViewPerms, ownerDeptStr) {
         if (!vpSelect) return;
         vpSelect.innerHTML = '<option value="">Select department…</option>';
@@ -114,31 +155,31 @@ export function setupDetails(refreshDocuments) {
         const ownerNormalized = ownerDeptStr ? String(ownerDeptStr).trim() : '';
         if (ownerNormalized) granted.add(ownerNormalized);
         (departmentsList || []).forEach(d => {
-          const id = normDeptIdFromDept(d); if (!id) return; if (ownerNormalized && String(id) === ownerNormalized) return; if (granted.has(id)) return;
+          const id = normDeptIdFromDept(d);
+          if(!id || (ownerNormalized && String(id) === ownerNormalized) || granted.has(id)) return;
           const opt = document.createElement('option'); opt.value = id; opt.textContent = d.name ?? (`Dept ${id}`); vpSelect.appendChild(opt);
         });
       }
       populateDeptSelect(departments, viewPerms, ownerDeptId);
 
       // Version upload
-      document.getElementById('btnAddVersion')?.addEventListener('click', async () => {
-        const addStatus = document.getElementById('addVersionStatus');
-        if (!addStatus) return; const fileEl = document.getElementById('newVersionFile'); const titleEl = document.getElementById('newVersionTitle');
-        const file = fileEl?.files?.[0]; if (!file) { addStatus.style.display=''; addStatus.textContent='Please choose a file.'; return; }
-        const fd = new FormData(); fd.append('file', file); if (titleEl && titleEl.value) fd.append('title', titleEl.value);
+      qs('#btnAddVersion')?.addEventListener('click', async () => {
+        const addStatus = qs('#addVersionStatus'); if(!addStatus) return;
+        const fileEl = qs('#newVersionFile'); const titleEl = qs('#newVersionTitle');
+        const file = fileEl?.files?.[0]; if(!file){ addStatus.style.display=''; addStatus.textContent='Please choose a file.'; return; }
+        const fd = new FormData(); fd.append('file', file); if(titleEl?.value) fd.append('title', titleEl.value);
         try {
           addStatus.style.display=''; addStatus.textContent='Uploading...';
-          const res = await updateDocumentVersion(documentId, fd);
-          if (!res || !res.ok) { const txt = await res.text().catch(()=> ''); addStatus.textContent = txt || `Upload failed (${res ? res.status : 'network'})`; return; }
-          addStatus.textContent = 'Version uploaded.';
-          const updated = await fetchVersions(documentId);
-          updateVersionsInner(Array.isArray(updated) ? updated : []);
-          await refreshDocuments();
-        } catch (err) { console.error('add version error', err); addStatus.textContent = 'Network error while uploading version'; }
+            const res = await updateDocumentVersion(documentId, fd);
+            if(!res || !res.ok){ const txt = await res?.text?.().catch(()=> ''); addStatus.textContent = txt || `Upload failed (${res? res.status:'network'})`; return; }
+            addStatus.textContent='Version uploaded.';
+            updateVersionsInner(await fetchVersions(documentId));
+            await refreshDocuments();
+        } catch(e){ console.error('add version error', e); addStatus.textContent='Network error while uploading version'; }
       });
 
       // Grant view permission
-      const btnGrant = document.getElementById('btnGrantView');
+  const btnGrant = qs('#btnGrantView');
       if (btnGrant) {
         btnGrant.onclick = async () => {
           const sel = document.getElementById('vpDeptSelect');
@@ -148,16 +189,27 @@ export function setupDetails(refreshDocuments) {
           try {
             await grantViewPermission(documentId, { dept_id: deptId });
             const updated = await fetchViewPermissions(documentId);
-            document.getElementById('viewPermsArea').innerHTML = updated.length ? updated.map(p => renderViewPermItem(p)).join('') : '<div style="color:#666">No explicit view permissions</div>';
+            setHTML(qs('#viewPermsArea'), updated.length ? updated.map(p => renderViewPermItem(p)).join('') : '<div style="color:#666">No explicit view permissions</div>');
             departments = await fetchDepartments();
             populateDeptSelect(departments, updated, ownerDeptId);
+            // Refresh document detail so publicity state updates immediately in the modal
+            try {
+              const refreshedDoc = await fetchDocument(documentId);
+              if (refreshedDoc) {
+                docDetail = refreshedDoc;
+                if (publicityEl) publicityEl.textContent = docDetail.is_public ? 'Public' : 'Private';
+                if (publicityBtn) publicityBtn.textContent = docDetail.is_public ? 'Make Private' : 'Make Public';
+              }
+            } catch (innerErr) {
+              console.debug('could not refresh document after grant', innerErr);
+            }
             await refreshDocuments();
           } catch (e) { alert('Could not grant view permission: ' + (e.message || 'error')); }
         };
       }
 
       // Revoke view permissions
-      const viewPermsArea = document.getElementById('viewPermsArea');
+  const viewPermsArea = qs('#viewPermsArea');
       if (viewPermsArea) {
         viewPermsArea.onclick = async (ev) => {
           const btn = ev.target.closest('button.revoke-view'); if (!btn) return;
@@ -166,7 +218,7 @@ export function setupDetails(refreshDocuments) {
             const ok = await revokeViewPermission(documentId, { dept_id: dept_id ? Number(dept_id) : null });
             if (!ok) throw new Error('revoke failed');
             const updated = await fetchViewPermissions(documentId);
-            viewPermsArea.innerHTML = updated.length ? updated.map(p => renderViewPermItem(p)).join('') : '<div style="color:#666">No explicit view permissions</div>';
+            setHTML(viewPermsArea, updated.length ? updated.map(p => renderViewPermItem(p)).join('') : '<div style="color:#666">No explicit view permissions</div>');
             departments = await fetchDepartments();
             populateDeptSelect(departments, updated, ownerDeptId);
             await refreshDocuments();
@@ -175,45 +227,29 @@ export function setupDetails(refreshDocuments) {
       }
 
       function updateTagAreas(newAssigned, newAvailable) {
-        const at = document.getElementById('assignedTagsArea'); const av = document.getElementById('availableTagsArea');
-        if (at) at.innerHTML = newAssigned.length ? newAssigned.map(t => renderTagBtn(t, true)).join(' ') : '<span class="tag muted">no tags</span>';
-        if (av) av.innerHTML = newAvailable.length ? newAvailable.map(t => renderTagBtn(t, false)).join(' ') : '<span style=\"color:#666\">No tags available</span>';
+        setHTML(qs('#assignedTagsArea'), newAssigned.length ? newAssigned.map(t => renderTagBtn(t, true)).join(' ') : '<span class="tag muted">no tags</span>');
+        setHTML(qs('#availableTagsArea'), newAvailable.length ? newAvailable.map(t => renderTagBtn(t, false)).join(' ') : '<span style="color:#666">No tags available</span>');
       }
 
-      document.getElementById('btnCreateAssignTag')?.addEventListener('click', async () => {
-        const input = document.getElementById('newTagInput'); const val = (input?.value || '').trim(); if (!val) return;
-        try {
-          const created = await createTagOnServer(val);
-            const okAssign = await assignTagToDocument(documentId, created.tag_id);
-            if (!okAssign) throw new Error('assign failed');
-            assigned.unshift(created);
-            updateTagAreas(assigned, available);
-            await refreshDocuments();
-            input.value = '';
-        } catch (e) { alert('Could not create/assign tag: ' + (e.message || 'error')); }
+      qs('#btnCreateAssignTag')?.addEventListener('click', async () => {
+        const input = qs('#newTagInput'); const val=(input?.value||'').trim(); if(!val) return;
+        try { const created = await createTagOnServer(val); if(!await assignTagToDocument(documentId, created.tag_id)) throw new Error('assign failed'); assigned.unshift(created); updateTagAreas(assigned, available); await refreshDocuments(); input.value=''; }
+        catch(e){ alert('Could not create/assign tag: '+ (e.message||'error')); }
       });
 
-      document.getElementById('availableTagsArea')?.addEventListener('click', async (ev) => {
-        const btn = ev.target.closest('button.tag-ctl'); if (!btn) return;
-        const tagId = btn.getAttribute('data-tag-id'); btn.disabled = true;
-        try {
-          const ok = await assignTagToDocument(documentId, tagId); if (!ok) throw new Error('assign failed');
-          const idx = available.findIndex(t => String(t.tag_id) === String(tagId));
-          if (idx >= 0) { const moved = available.splice(idx,1)[0]; assigned.unshift(moved); }
-          updateTagAreas(assigned, available); await refreshDocuments();
-        } catch { alert('Could not assign tag'); } finally { btn.disabled = false; }
+      qs('#availableTagsArea')?.addEventListener('click', async ev => {
+        const btn = ev.target.closest('button.tag-ctl'); if(!btn) return; const tagId = btn.getAttribute('data-tag-id'); btn.disabled=true;
+        try { if(!await assignTagToDocument(documentId, tagId)) throw new Error('assign failed'); const idx=available.findIndex(t=> String(t.tag_id)===String(tagId)); if(idx>=0){ const moved=available.splice(idx,1)[0]; assigned.unshift(moved);} updateTagAreas(assigned, available); await refreshDocuments(); }
+        catch{ alert('Could not assign tag'); } finally { btn.disabled=false; }
       });
 
-      document.getElementById('assignedTagsArea')?.addEventListener('click', async (ev) => {
-        const btn = ev.target.closest('button.tag-ctl'); if (!btn) return; const tagId = btn.getAttribute('data-tag-id'); btn.disabled = true;
-        try {
-          const ok = await removeTagFromDocument(documentId, tagId); if (!ok) throw new Error('remove failed');
-          const idx = assigned.findIndex(t => String(t.tag_id) === String(tagId)); if (idx >= 0) { const moved = assigned.splice(idx,1)[0]; available.unshift(moved); }
-          updateTagAreas(assigned, available); await refreshDocuments();
-        } catch { alert('Could not remove tag'); } finally { btn.disabled = false; }
+      qs('#assignedTagsArea')?.addEventListener('click', async ev => {
+        const btn = ev.target.closest('button.tag-ctl'); if(!btn) return; const tagId=btn.getAttribute('data-tag-id'); btn.disabled=true;
+        try { if(!await removeTagFromDocument(documentId, tagId)) throw new Error('remove failed'); const idx=assigned.findIndex(t=> String(t.tag_id)===String(tagId)); if(idx>=0){ const moved=assigned.splice(idx,1)[0]; available.unshift(moved);} updateTagAreas(assigned, available); await refreshDocuments(); }
+        catch{ alert('Could not remove tag'); } finally { btn.disabled=false; }
       });
 
-      document.getElementById('versionsInner')?.querySelectorAll('button[data-action]')?.forEach(b => {
+      qs('#versionsInner')?.querySelectorAll('button[data-action]')?.forEach(b => {
         b.addEventListener('click', async () => {
           const a = b.getAttribute('data-action');
           const vid = b.getAttribute('data-id');

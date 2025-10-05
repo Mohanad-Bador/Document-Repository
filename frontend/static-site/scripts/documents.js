@@ -15,7 +15,12 @@ export function setupDocuments(getOpenDetailsModalFor) {
         if (resultsEl) resultsEl.textContent = 'Could not load documents.'; return;
       }
       const payload = await res.json();
-      renderDocuments(payload.documents ?? []);
+      // Admin list returns an array, accessible endpoint returns { user, documents }
+  let docs = [];
+  if (Array.isArray(payload)) docs = payload;
+  else if (payload && Array.isArray(payload.documents)) docs = payload.documents;
+  if (Array.isArray(docs)) docs.sort((a,b)=> (a.document_id||0) - (b.document_id||0));
+  renderDocuments(docs);
     } catch (err) {
       console.error('network error fetching accessible documents', err);
       if (resultsEl) resultsEl.textContent = 'Network error loading documents';
@@ -90,8 +95,9 @@ export function setupDocuments(getOpenDetailsModalFor) {
         console.warn('search failed', res && res.status);
         if (resultsEl) resultsEl.textContent = 'Search failed'; return;
       }
-      const docs = await res.json();
-      renderDocuments(docs);
+  let docs = await res.json();
+  if (Array.isArray(docs)) docs.sort((a,b)=> (a.document_id||0) - (b.document_id||0));
+  renderDocuments(docs);
     } catch (err) {
       console.error('network error during search', err);
       if (resultsEl) resultsEl.textContent = 'Network error';

@@ -48,6 +48,15 @@ export function renderProfile(profile) {
   if (nameEl) nameEl.textContent = displayName;
   if (roleEl) roleEl.textContent = `Role: ${roleName}`;
   if (deptEl) deptEl.textContent = `Department: ${deptName}`;
+  // reveal admin link if user has admin role
+  try {
+    const adminLink = document.getElementById('adminLink');
+    if (adminLink && (roleName === 'admin' || profile.role_id === 0)) {
+      adminLink.classList.remove('hidden');
+    } else if (adminLink) {
+      adminLink.classList.add('hidden');
+    }
+  } catch {}
   const hasRole = profile.role_id != null;
   const hasDept = profile.department_id != null || Boolean(profile.department_name);
   if (!hasRole || !hasDept) { showNotice('Your account is pending assignment. An administrator must assign a role and a department before you can access the dashboard.'); return false; }
