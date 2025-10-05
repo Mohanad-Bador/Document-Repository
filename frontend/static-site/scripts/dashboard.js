@@ -5,6 +5,18 @@ import { uploadDocumentFile } from './api.js';
 
 let docs; let details; // populated after DOMContentLoaded
 
+// Logout binding function
+(() => {
+  const btnLogout = document.getElementById('btnLogout');
+  if (btnLogout && !btnLogout.dataset.bound) {
+    btnLogout.addEventListener('click', () => {
+      try { localStorage.removeItem('access_token'); } catch {}
+      window.location.href = '/static/login.html';
+    });
+    btnLogout.dataset.bound = 'true';
+  }
+})();
+
 // Upload modal elements
 const umEl = document.getElementById('uploadModal');
 const btnOpen = document.getElementById('btnOpenUpload');
@@ -36,17 +48,10 @@ async function init() {
   docs = setupDocuments(() => details.openDetailsModalFor);
   details = setupDetails(async () => { await docs.fetchAccessibleDocuments(); });
   const profile = await fetchProfile();
-  if (!profile) return;
+  if (!profile) return; // still allow logout due to early wiring
   const rendered = renderProfile(profile);
-  if (!rendered) return;
+  if (!rendered) return; // account pending assignment; logout still works
   await docs.fetchAccessibleDocuments();
-
-  // wire logout button
-  const btnLogout = document.getElementById('btnLogout');
-  btnLogout?.addEventListener('click', () => {
-    try { localStorage.removeItem('access_token'); } catch (e) {}
-    window.location.href = '/static/login.html';
-  });
 }
 
 if (document.readyState === 'loading') {

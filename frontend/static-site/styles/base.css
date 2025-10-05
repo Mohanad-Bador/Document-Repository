@@ -50,6 +50,8 @@ img,svg{max-width:100%;height:auto;display:block}
 }
 .site-nav{ margin-left: auto; }
 .site-nav #btnLogout{ min-width:70px; }
+/* Ensure logout button always clickable even if a notice overlays header area */
+.site-nav #btnLogout{ position:relative; z-index:100; }
 
 @media(max-width:520px){
   .site-header{ flex-direction:column; align-items:flex-start; gap:8px; position:relative; top:0; }
