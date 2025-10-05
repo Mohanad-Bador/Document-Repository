@@ -1,0 +1,15 @@
+.tag{
+  display:inline-block;
+  padding:6px 10px;
+  border-radius:999px;background:#eef2ff;
+  color:var(--accent);
+  font-size:0.85rem;margin:0 6px 6px 0;
+  border:1px solid rgba(11,105,255,0.12)
+}
+.tag.muted{
+  background:#f3f4f6;
+  color:var(--muted);
+  border:1px solid rgba(0,0,0,0.04)
+}
+.tag-ctl{cursor:pointer}
+.tag-ctl:hover{background:#dbeafe}

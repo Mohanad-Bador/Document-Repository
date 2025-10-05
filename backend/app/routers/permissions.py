@@ -69,3 +69,12 @@ def list_document_permissions(document_id: int, db: Session = Depends(get_db), c
 
     perms = db.query(models.DocumentPermission).filter(models.DocumentPermission.document_id == document_id).all()
     return [schemas.Permission.model_validate(p) for p in perms]
+
+@router.get("/departments", summary="List departments (id + name)")
+def list_departments(db: Session = Depends(get_db), _user: models.User = Depends(get_current_user)):
+    """
+    Return simple list of departments for UI dropdown.
+    Authenticated users only.
+    """
+    depts = db.query(models.Department).all()
+    return [{"department_id": d.department_id, "name": d.name} for d in depts]

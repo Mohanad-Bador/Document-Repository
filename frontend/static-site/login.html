@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login — Document Repo</title>
+  <link rel="stylesheet" href="/static/styles/auth.css" />
+</head>
+<body>
+  <main class="auth-shell">
+    <h1 class="auth-title">Login</h1>
+  <form id="loginForm" class="auth-form" onsubmit="event.preventDefault()">
+      <label class="field">Username<br/><input id="username" name="username" required /></label>
+      <label class="field">Password<br/><input id="password" name="password" type="password" required /></label>
+      <div class="actions">
+        <button id="btnLogin" class="btn primary" type="submit">Login</button>
+        <a class="muted" href="/static/signup.html">Sign up</a>
+      </div>
+    </form>
+    <div id="loginStatus" class="notice" aria-live="polite"></div>
+  </main>
+  <script src="/static/scripts/login.js"></script>
+</body>
+</html>

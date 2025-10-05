@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign Up — Document Repo</title>
+  <link rel="stylesheet" href="/static/styles/auth.css" />
+</head>
+<body>
+  <main class="auth-shell">
+    <h1 class="auth-title">Create account</h1>
+  <form id="signupForm" class="auth-form" onsubmit="event.preventDefault()">
+      <label class="field">Username<br/><input id="su_username" name="username" required /></label>
+      <label class="field">Email<br/><input id="su_email" name="email" type="email" required /></label>
+      <label class="field">Password<br/><input id="su_password" name="password" type="password" required /></label>
+      <label class="field">First name<br/><input id="su_firstname" name="first_name" /></label>
+      <label class="field">Last name<br/><input id="su_lastname" name="last_name" /></label>
+      <label class="field">Birthdate<br/><input id="su_birth" name="birthdate" type="date" /></label>
+      <label class="field">Phone<br/><input id="su_phone" name="phone" type="tel" /></label>
+
+      <div class="actions">
+        <button id="btnSignup" class="btn primary" type="submit">Create account</button>
+        <a class="muted" href="/static/login.html">Login</a>
+      </div>
+    </form>
+    <div id="signupStatus" class="notice" aria-live="polite"></div>
+  </main>
+  <script src="/static/scripts/signup.js"></script>
+</body>
+</html>

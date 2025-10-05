@@ -1,0 +1,30 @@
+/* buttons.css - button styles and variants */
+.btn{
+  padding:8px 12px;
+  border-radius:8px;
+  border:1px solid var(--color-border);
+  background:var(--color-surface);
+  cursor:pointer
+}
+.btn.primary{
+  background:var(--accent);
+  color:#fff;
+  border-color:var(--accent)
+}
+.btn.secondary{
+  background:#fff;
+  color:var(--color-text);
+  border-color:var(--color-border)
+}
+.btn.small{
+  padding:6px 8px;
+  font-size:0.9rem
+}
+.icon-btn{
+  background:transparent;
+  border:1px solid transparent;
+  padding:6px;
+  border-radius:6px;
+  cursor:pointer
+}
+.icon-btn:hover{background:var(--color-surface)}

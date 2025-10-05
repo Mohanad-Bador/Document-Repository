@@ -14,6 +14,8 @@ class Department(Base):
     users = relationship("User", back_populates="department", passive_deletes=True)
     # one-to-many relationship with Document.allowed_departments
     accessible_documents = relationship("Document", secondary="document_permissions", back_populates="allowed_departments")
+    # one-to-many relationship: documents owned by this department
+    documents = relationship("Document", back_populates="department", passive_deletes=True)
 
 class Role(Base):
     __tablename__ = "roles"
@@ -57,6 +59,8 @@ class Document(Base):
         cascade="all, delete-orphan",
         passive_deletes=True
     )
+    # many-to-one relationship to owning Department
+    department = relationship("Department", back_populates="documents")
     # one-to-many relationship with document_tags and document_permissions
     tags = relationship("Tag", secondary="document_tags", back_populates="documents")
     allowed_departments = relationship("Department", secondary="document_permissions", back_populates="accessible_documents")

@@ -1,0 +1,54 @@
+.modal{
+  position:fixed;
+  inset:0;display:none;
+  align-items:center;
+  justify-content:center;
+  background:rgba(10,15,25,0.45);
+  z-index:1200;padding:24px
+}
+.modal-content{
+  width:100%;
+  max-width:560px;
+  background:var(--color-surface);
+  border-radius:10px;
+  padding:18px;
+  box-shadow:0 12px 30px rgba(2,6,23,0.12)
+}
+.modal-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  margin-bottom:12px
+}
+.modal-close{
+  background:transparent;
+  border:none;
+  font-size:20px;
+  cursor:pointer
+}
+.modal form label{
+  display:block;
+  margin:8px 0;
+  font-size:0.95rem
+}
+.modal input[type="text"],.modal input[type="file"]{
+  width:100%;
+  padding:8px;
+  border-radius:8px;
+  border:1px solid var(--color-border);
+  margin-top:6px
+}
+.modal .modal-actions{
+  display:flex;
+  gap:8px;
+  margin-top:12px
+}
+.notice{
+  font-size:0.95rem;
+  color:var(--color-text);
+  margin-top:8px
+}
+.versions-item{
+  padding:10px;
+  border-bottom:1px solid #eee
+}

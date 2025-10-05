@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import and_, select, func
 from backend.app.database import get_db
@@ -8,6 +8,8 @@ from backend.app.routers.helpers import get_current_user, can_access_document, r
 import backend.app.models as models
 import backend.app.schemas as schemas
 import io
+import mimetypes
+import urllib.parse
 
 router = APIRouter()
 
@@ -22,6 +24,7 @@ def list_documents(db: Session = Depends(get_db),
 
     rows = (
         db.query(D, V)
+        .options(selectinload(D.tags), selectinload(D.department))
         .outerjoin(V, and_(V.document_id == D.document_id,
                                 V.version_number == D.latest_version_number))
         .all()
@@ -30,8 +33,12 @@ def list_documents(db: Session = Depends(get_db),
     results: list[schemas.DocumentWithLatestVersion] = []
     for doc, ver in rows:
         doc_model = schemas.DocumentWithLatestVersion.model_validate(doc)
+        # populate latest_version as before
         doc_model.latest_version = schemas.DocumentVersion.model_validate(ver) if ver is not None else None
         doc_model.latest_version_title = ver.title if ver is not None else None
+        # populate tags explicitly
+        doc_model.tags = [schemas.Tag.model_validate(t) for t in (doc.tags or [])]
+        doc_model.department_name = doc.department.name if getattr(doc, "department", None) else None
         results.append(doc_model)
 
     return results
@@ -52,7 +59,26 @@ def list_document_versions(
         .order_by(models.DocumentVersion.version_number)
         .all()
     )
-    return [schemas.DocumentVersion.model_validate(v) for v in versions]
+
+    results = []
+    for v in versions:
+        v_model = schemas.DocumentVersion.model_validate(v)
+        # populate uploader_name when uploader relation is loaded
+        try:
+            upl = getattr(v, 'uploader', None)
+            if upl is not None:
+                # prefer full name if available, otherwise username
+                first = getattr(upl, 'first_name', None)
+                last = getattr(upl, 'last_name', None)
+                if first and last:
+                    v_model.uploader_name = f"{first} {last}"
+                else:
+                    v_model.uploader_name = getattr(upl, 'username', None)
+        except Exception:
+            # best-effort: ignore errors and continue
+            pass
+        results.append(v_model)
+    return results
 
 @router.get("/me", response_model=schemas.AccessibleDocuments)
 def get_accessible_documents(current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -86,12 +112,19 @@ def get_accessible_documents(current_user: models.User = Depends(get_current_use
             # set department_name on user_model
             user_model.department_name = dept.name
 
+    # Loading role name for visualization
+    if user.role_id is not None:
+        role = db.query(models.Role).filter(models.Role.role_id == user.role_id).one_or_none()
+        if role is not None:
+            user_model.role_name = role.name
+
     if not doc_ids:
         return schemas.AccessibleDocuments(user=user_model, documents=[])
 
     # Fetch documents with their latest version
     rows = (
         db.query(D, V)
+        .options(selectinload(D.tags), selectinload(D.department))
         .outerjoin(V, and_(V.document_id == D.document_id, V.version_number == D.latest_version_number))
         .filter(D.document_id.in_(list(doc_ids)))
         .all()
@@ -102,6 +135,8 @@ def get_accessible_documents(current_user: models.User = Depends(get_current_use
         doc_model = schemas.DocumentWithLatestVersion.model_validate(doc)
         doc_model.latest_version = schemas.DocumentVersion.model_validate(ver) if ver is not None else None
         doc_model.latest_version_title = ver.title if ver is not None else None
+        doc_model.tags = [schemas.Tag.model_validate(t) for t in (doc.tags or [])]
+        doc_model.department_name = doc.department.name if getattr(doc, "department", None) else None
         documents.append(doc_model)
 
     return schemas.AccessibleDocuments(user=user_model, documents=documents)
@@ -138,7 +173,7 @@ def upload_document(
             .one_or_none())
 
         if doc is not None:
-            doc = authorize_document_manage(db, doc.document_id, current_user, lock=True)
+            doc = authorize_document_manage(db, doc.document_id, current_user)
             next_version = (doc.latest_version_number or 0) + 1
             new_version = models.DocumentVersion(
                 uploader_id=uploader_id,
@@ -212,7 +247,7 @@ def upload_new_version(
         raise HTTPException(status_code=400, detail="empty file uploaded")
     file_size = len(file_bytes)
 
-    doc = authorize_document_manage(db, document_id, current_user, lock=True)
+    doc = authorize_document_manage(db, document_id, current_user)
 
     # Document exists and user is authorized adding new version
     next_version = (doc.latest_version_number or 0) + 1
@@ -250,10 +285,22 @@ def download_version(
         raise HTTPException(status_code=404, detail="version not found")
     # Check if user can access the document
     can_access_document(version.document_id, current_user, db)
+
+    # determine mime type from filename if possible
+    mime_type, _ = mimetypes.guess_type(version.file_name or "")
+    media_type = mime_type or "application/octet-stream"
+
+    # inline for viewable types, otherwise attachment
+    inline_types = ("image/", "text/", "application/pdf")
+    disposition_kind = "inline" if any(media_type.startswith(t) for t in inline_types) else "attachment"
+
+    filename = version.file_name or f"document_{version.version_id}"
+    filename_quoted = urllib.parse.quote(filename)
+
     return StreamingResponse(
         io.BytesIO(version.file_data),
-        media_type="application/octet-stream",
-        headers={"Content-Disposition": f"attachment; filename={version.file_name}"}
+        media_type=media_type,
+        headers={"Content-Disposition": f'{disposition_kind}; filename="{filename_quoted}"'}
     )
 
 @router.post("/publicity/{document_id}/set", response_model=schemas.Document)
@@ -308,11 +355,12 @@ def search_documents(
     # Base query returning document + its latest version
     q = (
         db.query(D, V)
+        .options(selectinload(D.tags), selectinload(D.department))
         .outerjoin(V, and_(V.document_id == D.document_id, V.version_number == D.latest_version_number))
         .filter(D.document_id.in_(list(accessible_ids)))
     )
 
-    # Checking for docuement title (partial, case-insensitive)
+    # Checking for document title (partial, case-insensitive)
     if title:
         q = q.filter(func.lower(D.latest_version_title).contains(title.lower()))
 
@@ -336,6 +384,8 @@ def search_documents(
         doc_model = schemas.DocumentWithLatestVersion.model_validate(doc)
         doc_model.latest_version = schemas.DocumentVersion.model_validate(ver) if ver is not None else None
         doc_model.latest_version_title = ver.title if ver is not None else None
+        doc_model.tags = [schemas.Tag.model_validate(t) for t in (doc.tags or [])]
+        doc_model.department_name = doc.department.name if getattr(doc, "department", None) else None
         results.append(doc_model)
 
     return results
